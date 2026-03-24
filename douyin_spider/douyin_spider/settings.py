@@ -61,6 +61,7 @@ DOWNLOAD_DELAY = 1
 ITEM_PIPELINES = {
     "douyin_spider.pipelines.DouyinVideoDownloadPipeline": 300,
     "douyin_spider.pipelines.KuaishouVideoDownloadPipeline": 300,
+    "douyin_spider.pipelines.InstagramVideoDownloadPipeline": 300,
 }
 
 # Enable and configure the AutoThrottle extension (disabled by default)
