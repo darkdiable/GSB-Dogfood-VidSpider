@@ -119,3 +119,75 @@ class DouyinVideoDownloadPipeline:
         if len(filename) > 100:
             filename = filename[:100]
         return filename if filename else 'douyin_video'
+
+class InstagramVideoDownloadPipeline:
+    def __init__(self):
+        self.output_dir = '/Users/bilei/work/LargeModelAnnotation/GBS/260319/GSB-Dogfood-VidSpider/insOutput'
+        os.makedirs(self.output_dir, exist_ok=True)
+
+    def process_item(self, item, spider):
+        if spider.name != 'instagram':
+            return item
+            
+        adapter = ItemAdapter(item)
+        video_url = adapter.get('video_url')
+        title = adapter.get('title', 'instagram_video')
+        
+        if not video_url:
+            raise DropItem("Missing video URL in item")
+        
+        video_url = self.clean_instagram_url(video_url)
+        
+        title = self.sanitize_filename(title)
+        file_path = os.path.join(self.output_dir, f'{title}.mp4')
+        
+        counter = 1
+        while os.path.exists(file_path):
+            file_path = os.path.join(self.output_dir, f'{title}_{counter}.mp4')
+            counter += 1
+        
+        try:
+            spider.logger.info(f'Downloading video from: {video_url}')
+            response = requests.get(
+                video_url,
+                stream=True,
+                timeout=60,
+                headers={
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Referer': 'https://www.instagram.com/',
+                }
+            )
+            response.raise_for_status()
+            
+            total_size = int(response.headers.get('content-length', 0))
+            spider.logger.info(f'Total video size: {total_size/1024/1024:.2f} MB')
+            
+            with open(file_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+            
+            final_size = os.path.getsize(file_path)
+            spider.logger.info(f'Video saved to: {file_path} ({final_size/1024/1024:.2f} MB)')
+            adapter['file_path'] = file_path
+            
+        except Exception as e:
+            spider.logger.error(f'Failed to download video: {str(e)}')
+            raise DropItem(f"Failed to download video: {str(e)}")
+        
+        return item
+
+    def clean_instagram_url(self, url):
+        if 'bytestart' in url or 'byteend' in url:
+            url = url.split('bytestart=')[0].rstrip('&?')
+            url = url.split('byteend=')[0].rstrip('&?')
+        return url
+
+    def sanitize_filename(self, filename):
+        invalid_chars = '<>:"/\\|?*'
+        for char in invalid_chars:
+            filename = filename.replace(char, '_')
+        filename = filename.strip()
+        if len(filename) > 100:
+            filename = filename[:100]
+        return filename if filename else 'instagram_video'
