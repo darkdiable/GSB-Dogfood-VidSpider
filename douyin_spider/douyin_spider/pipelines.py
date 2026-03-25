@@ -11,22 +11,22 @@ class KuaishouVideoDownloadPipeline:
     def process_item(self, item, spider):
         if spider.name != 'kuaishou':
             return item
-            
+
         adapter = ItemAdapter(item)
         video_url = adapter.get('video_url')
         title = adapter.get('title', 'kuaishou_video')
-        
+
         if not video_url:
             raise DropItem("Missing video URL in item")
-        
+
         title = self.sanitize_filename(title)
         file_path = os.path.join(self.output_dir, f'{title}.mp4')
-        
+
         counter = 1
         while os.path.exists(file_path):
             file_path = os.path.join(self.output_dir, f'{title}_{counter}.mp4')
             counter += 1
-        
+
         try:
             spider.logger.info(f'Downloading video from: {video_url}')
             response = requests.get(
@@ -39,19 +39,19 @@ class KuaishouVideoDownloadPipeline:
                 }
             )
             response.raise_for_status()
-            
+
             with open(file_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
                         f.write(chunk)
-            
+
             spider.logger.info(f'Video saved to: {file_path}')
             adapter['file_path'] = file_path
-            
+
         except Exception as e:
             spider.logger.error(f'Failed to download video: {str(e)}')
             raise DropItem(f"Failed to download video: {str(e)}")
-        
+
         return item
 
     def sanitize_filename(self, filename):
@@ -69,21 +69,24 @@ class DouyinVideoDownloadPipeline:
         os.makedirs(self.output_dir, exist_ok=True)
 
     def process_item(self, item, spider):
+        if spider.name != 'douyin':
+            return item
+
         adapter = ItemAdapter(item)
         video_url = adapter.get('video_url')
         title = adapter.get('title', 'douyin_video')
-        
+
         if not video_url:
             raise DropItem("Missing video URL in item")
-        
+
         title = self.sanitize_filename(title)
         file_path = os.path.join(self.output_dir, f'{title}.mp4')
-        
+
         counter = 1
         while os.path.exists(file_path):
             file_path = os.path.join(self.output_dir, f'{title}_{counter}.mp4')
             counter += 1
-        
+
         try:
             spider.logger.info(f'Downloading video from: {video_url}')
             response = requests.get(
@@ -96,19 +99,19 @@ class DouyinVideoDownloadPipeline:
                 }
             )
             response.raise_for_status()
-            
+
             with open(file_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
                         f.write(chunk)
-            
+
             spider.logger.info(f'Video saved to: {file_path}')
             adapter['file_path'] = file_path
-            
+
         except Exception as e:
             spider.logger.error(f'Failed to download video: {str(e)}')
             raise DropItem(f"Failed to download video: {str(e)}")
-        
+
         return item
 
     def sanitize_filename(self, filename):
@@ -128,24 +131,24 @@ class InstagramVideoDownloadPipeline:
     def process_item(self, item, spider):
         if spider.name != 'instagram':
             return item
-            
+
         adapter = ItemAdapter(item)
         video_url = adapter.get('video_url')
         title = adapter.get('title', 'instagram_video')
-        
+
         if not video_url:
             raise DropItem("Missing video URL in item")
-        
+
         video_url = self.clean_instagram_url(video_url)
-        
+
         title = self.sanitize_filename(title)
         file_path = os.path.join(self.output_dir, f'{title}.mp4')
-        
+
         counter = 1
         while os.path.exists(file_path):
             file_path = os.path.join(self.output_dir, f'{title}_{counter}.mp4')
             counter += 1
-        
+
         try:
             spider.logger.info(f'Downloading video from: {video_url}')
             response = requests.get(
@@ -158,23 +161,23 @@ class InstagramVideoDownloadPipeline:
                 }
             )
             response.raise_for_status()
-            
+
             total_size = int(response.headers.get('content-length', 0))
             spider.logger.info(f'Total video size: {total_size/1024/1024:.2f} MB')
-            
+
             with open(file_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
                         f.write(chunk)
-            
+
             final_size = os.path.getsize(file_path)
             spider.logger.info(f'Video saved to: {file_path} ({final_size/1024/1024:.2f} MB)')
             adapter['file_path'] = file_path
-            
+
         except Exception as e:
             spider.logger.error(f'Failed to download video: {str(e)}')
             raise DropItem(f"Failed to download video: {str(e)}")
-        
+
         return item
 
     def clean_instagram_url(self, url):
@@ -191,3 +194,161 @@ class InstagramVideoDownloadPipeline:
         if len(filename) > 100:
             filename = filename[:100]
         return filename if filename else 'instagram_video'
+
+
+class BilibiliVideoDownloadPipeline:
+    def __init__(self):
+        self.output_dir = '/Users/bilei/work/LargeModelAnnotation/GBS/260319/GSB-Dogfood-VidSpider/bilibiliOutput'
+        os.makedirs(self.output_dir, exist_ok=True)
+
+    def process_item(self, item, spider):
+        if spider.name != 'bilibili':
+            return item
+
+        adapter = ItemAdapter(item)
+        video_url = adapter.get('video_url')
+        audio_url = adapter.get('audio_url')
+        title = adapter.get('title', 'bilibili_video')
+        use_api = adapter.get('use_api', False)
+
+        if not video_url:
+            raise DropItem("Missing video URL in item")
+
+        title = self.sanitize_filename(title)
+        file_path = os.path.join(self.output_dir, f'{title}.mp4')
+
+        counter = 1
+        while os.path.exists(file_path):
+            file_path = os.path.join(self.output_dir, f'{title}_{counter}.mp4')
+            counter += 1
+
+        try:
+            if audio_url:
+                # 分别下载视频和音频流，然后合并
+                spider.logger.info(f'Downloading video stream...')
+                video_temp = os.path.join(self.output_dir, f'{title}_video_temp.m4s')
+                self.download_stream(video_url, video_temp, spider)
+
+                spider.logger.info(f'Downloading audio stream...')
+                audio_temp = os.path.join(self.output_dir, f'{title}_audio_temp.m4s')
+                self.download_stream(audio_url, audio_temp, spider)
+
+                spider.logger.info(f'Merging video and audio with ffmpeg...')
+                self.merge_streams(video_temp, audio_temp, file_path, spider)
+
+                os.remove(video_temp)
+                os.remove(audio_temp)
+            else:
+                # 直接下载单个视频流
+                spider.logger.info(f'Downloading video...')
+                self.download_stream(video_url, file_path, spider)
+
+            final_size = os.path.getsize(file_path)
+            spider.logger.info(f'Video saved to: {file_path} ({final_size/1024/1024:.2f} MB)')
+
+            # 使用ffmpeg去除左上角水印
+            self.remove_watermark(file_path, spider)
+
+            adapter['file_path'] = file_path
+
+        except Exception as e:
+            spider.logger.error(f'Failed to download video: {str(e)}')
+            raise DropItem(f"Failed to download video: {str(e)}")
+
+        return item
+
+    def download_stream(self, url, file_path, spider):
+        """下载视频或音频流"""
+        import subprocess
+
+        # 使用ffmpeg直接下载，这样可以正确处理B站的防盗链
+        cmd = [
+            'ffmpeg',
+            '-headers', 'Referer: https://www.bilibili.com/\r\nUser-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36\r\n',
+            '-i', url,
+            '-c', 'copy',
+            '-y',
+            file_path
+        ]
+
+        spider.logger.info(f'Downloading stream using ffmpeg...')
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+
+        if result.returncode != 0:
+            spider.logger.error(f'FFmpeg download error: {result.stderr}')
+            raise Exception(f'FFmpeg download failed: {result.stderr}')
+
+        spider.logger.info(f'Stream downloaded successfully')
+
+    def merge_streams(self, video_path, audio_path, output_path, spider):
+        """使用ffmpeg合并视频和音频流"""
+        try:
+            import subprocess
+
+            cmd = [
+                'ffmpeg',
+                '-i', video_path,
+                '-i', audio_path,
+                '-c', 'copy',
+                '-y',
+                output_path
+            ]
+
+            spider.logger.info(f'Merging streams with ffmpeg...')
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+
+            if result.returncode != 0:
+                spider.logger.error(f'FFmpeg merge error: {result.stderr}')
+                raise Exception(f'FFmpeg merge failed: {result.stderr}')
+
+            spider.logger.info(f'Streams merged successfully')
+
+        except FileNotFoundError:
+            spider.logger.error('ffmpeg not found, cannot merge streams')
+            raise DropItem("ffmpeg not found, cannot merge streams")
+        except Exception as e:
+            spider.logger.error(f'Error merging streams: {str(e)}')
+            raise
+
+    def remove_watermark(self, file_path, spider):
+        """使用ffmpeg去除视频左上角水印"""
+        try:
+            import subprocess
+
+            temp_path = file_path + '.temp.mp4'
+
+            # 使用ffmpeg的delogo滤镜去除左上角水印
+            # B站水印通常在左上角，大小约为150x80像素
+            cmd = [
+                'ffmpeg',
+                '-i', file_path,
+                '-vf', 'delogo=x=10:y=10:w=150:h=80',
+                '-c:a', 'copy',
+                '-y',
+                temp_path
+            ]
+
+            spider.logger.info(f'Removing watermark from video using ffmpeg...')
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+
+            if result.returncode == 0:
+                os.replace(temp_path, file_path)
+                spider.logger.info(f'Watermark removed successfully')
+            else:
+                spider.logger.warning(f'Failed to remove watermark: {result.stderr}')
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+
+        except FileNotFoundError:
+            spider.logger.warning('ffmpeg not found, skipping watermark removal')
+        except Exception as e:
+            spider.logger.warning(f'Error removing watermark: {str(e)}')
+
+    def sanitize_filename(self, filename):
+        invalid_chars = '<>:"/\\|?*'
+        for char in invalid_chars:
+            filename = filename.replace(char, '_')
+        filename = filename.strip()
+        if len(filename) > 100:
+            filename = filename[:100]
+        return filename if filename else 'bilibili_video'
