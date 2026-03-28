@@ -2,6 +2,14 @@ import os
 import requests
 from itemadapter import ItemAdapter
 from scrapy.exceptions import DropItem
+import asyncio
+from playwright.async_api import async_playwright
+import nest_asyncio
+import yt_dlp
+import subprocess
+import re
+
+nest_asyncio.apply()
 
 class KuaishouVideoDownloadPipeline:
     def __init__(self):
@@ -69,6 +77,9 @@ class DouyinVideoDownloadPipeline:
         os.makedirs(self.output_dir, exist_ok=True)
 
     def process_item(self, item, spider):
+        if spider.name != 'douyin':
+            return item
+            
         adapter = ItemAdapter(item)
         video_url = adapter.get('video_url')
         title = adapter.get('title', 'douyin_video')
@@ -191,3 +202,82 @@ class InstagramVideoDownloadPipeline:
         if len(filename) > 100:
             filename = filename[:100]
         return filename if filename else 'instagram_video'
+
+class YoutubeVideoDownloadPipeline:
+    def __init__(self):
+        self.output_dir = '/Users/bilei/work/LargeModelAnnotation/GBS/260319/GSB-Dogfood-VidSpider/ytOutput'
+        os.makedirs(self.output_dir, exist_ok=True)
+
+    def process_item(self, item, spider):
+        if spider.name != 'youtube':
+            return item
+            
+        adapter = ItemAdapter(item)
+        video_url = adapter.get('video_url')
+        title = adapter.get('title', 'youtube_video')
+        original_url = adapter.get('original_url', '')
+        
+        if not video_url and not original_url:
+            raise DropItem("Missing video URL in item")
+        
+        title = self.sanitize_filename(title)
+        file_path = os.path.join(self.output_dir, f'{title}.mp4')
+        
+        counter = 1
+        while os.path.exists(file_path):
+            file_path = os.path.join(self.output_dir, f'{title}_{counter}.mp4')
+            counter += 1
+        
+        try:
+            spider.logger.info(f'Downloading video using yt-dlp...')
+            
+            download_url = original_url if original_url else video_url
+            
+            cmd = [
+                'python3', '-m', 'yt_dlp',
+                '--extractor-args', 'youtube:player_client=android',
+                '-f', 'best[ext=mp4]/best',
+                '-o', file_path,
+                '--no-playlist',
+                download_url
+            ]
+            
+            spider.logger.info(f'Running command: {" ".join(cmd)}')
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            
+            if result.returncode != 0:
+                spider.logger.error(f'yt-dlp stderr: {result.stderr}')
+                raise Exception(f'yt-dlp failed with return code {result.returncode}')
+            
+            spider.logger.info(f'yt-dlp stdout: {result.stdout}')
+            
+            if os.path.exists(file_path):
+                final_size = os.path.getsize(file_path)
+                spider.logger.info(f'Video saved to: {file_path} ({final_size/1024/1024:.2f} MB)')
+                adapter['file_path'] = file_path
+            else:
+                possible_files = [f for f in os.listdir(self.output_dir) if f.startswith(title)]
+                if possible_files:
+                    actual_file = os.path.join(self.output_dir, possible_files[-1])
+                    final_size = os.path.getsize(actual_file)
+                    spider.logger.info(f'Video saved to: {actual_file} ({final_size/1024/1024:.2f} MB)')
+                    adapter['file_path'] = actual_file
+                else:
+                    raise Exception('Video file not found after download')
+            
+        except Exception as e:
+            spider.logger.error(f'Failed to download video: {str(e)}')
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            raise DropItem(f"Failed to download video: {str(e)}")
+        
+        return item
+
+    def sanitize_filename(self, filename):
+        invalid_chars = '<>:"/\\|?*'
+        for char in invalid_chars:
+            filename = filename.replace(char, '_')
+        filename = filename.strip()
+        if len(filename) > 100:
+            filename = filename[:100]
+        return filename if filename else 'youtube_video'
